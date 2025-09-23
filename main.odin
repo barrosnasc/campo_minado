@@ -37,8 +37,8 @@ scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) -> [BOARD_SIZE]
 	bombs: [NUMBER_OF_BOMBS]BombPosition
 	bomb_board: [BOARD_SIZE][BOARD_SIZE]bool
 	for i in 0 ..< NUMBER_OF_BOMBS {
-		x := rand.float32_range(0, NUMBER_OF_BOMBS)
-		y := rand.float32_range(0, NUMBER_OF_BOMBS)
+		x := rand.float32_range(0, BOARD_SIZE)
+		y := rand.float32_range(0, BOARD_SIZE)
 		fmt.println(x, y, int(x), int(y))
 		bombs[i] = BombPosition{int(x), int(y)}
 	}
