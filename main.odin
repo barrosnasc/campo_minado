@@ -34,7 +34,7 @@ scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 	for i in 0 ..< NUMBER_OF_BOMBS {
 		x := rand.float32_range(0, BOARD_SIZE)
 		y := rand.float32_range(0, BOARD_SIZE)
-		tile := &board[x][y]
+		tile := &board[int(x)][int(y)]
 		tile.bomb = true
 	}
 }
@@ -77,23 +77,63 @@ neightboors_3x3 :: proc(x, y, x_size, y_size: int) -> [dynamic][2]int {
 }
 
 
-reveal :: proc(
-	board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile,
-	bomb_board: ^[BOARD_SIZE][BOARD_SIZE]bool,
-	x, y: int,
-) {
-	neightboors := neightboors_3x3(x, y, BOARD_SIZE, BOARD_SIZE)
-	defer delete(neightboors)
-	for &pos in neightboors {
-		tile := &board[pos.y][pos.x]
-		bomb_tile := bomb_board[pos.y][pos.x]
-		if tile.state == .UNDISCOVERED && bomb_tile == false {
-			if tile.number_hint > 0 {
-				tile.state = .NUMBER_HINT
-			} else {
-				tile.state = .NOTHING
+reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
+	defer free_all(context.temp_allocator)
+	checked: [BOARD_SIZE][BOARD_SIZE]bool = false
+
+
+	map_tile_with_nothing: map[[2]int]u8
+
+	center_tile := &board[x][y]
+	if center_tile.state == .UNDISCOVERED && center_tile.number_hint == 0 {
+		continue_discovering := true
+
+		tile_with_nothing: [dynamic][2]int
+		reserve(&tile_with_nothing, 6)
+		map_insert(&map_tile_with_nothing, [2]int{x, y}, 0)
+		append(&tile_with_nothing, [2]int{x, y})
+
+		for continue_discovering {
+			for len(tile_with_nothing) > 0 {
+				val := pop_front(&tile_with_nothing)
+				neightboors := neightboors_3x3(val.x, val.y, BOARD_SIZE, BOARD_SIZE)
+				defer delete(neightboors)
+				for &i in neightboors {
+					tile := board[i.x][i.y]
+					_entry, exists := &map_tile_with_nothing[i]
+					// não precisa checar bomb,pois number_hint fica sempre a borda de uma
+					if tile.state == .UNDISCOVERED && !exists && tile.number_hint == 0 {
+						append(&tile_with_nothing, [2]int{i.x, i.y})
+						map_insert(&map_tile_with_nothing, [2]int{i.x, i.y}, 0)
+					}
+				}
+			}
+			if len(tile_with_nothing) == 0 {continue_discovering = false}
+
+		}
+		fmt.println(map_tile_with_nothing)
+		map_alread_passed: map[[2]int]u8
+		defer delete(map_alread_passed)
+		for key in &map_tile_with_nothing {
+			tile := &board[key.x][key.y]
+			fmt.println(tile)
+			tile.state = .NOTHING
+			append(&tile_with_nothing, key)
+		}
+
+		fmt.println(map_tile_with_nothing)
+		for &pos in tile_with_nothing {
+			_entry, exists := &map_alread_passed[pos]
+			neightboors := neightboors_3x3(pos.x, pos.y, BOARD_SIZE, BOARD_SIZE)
+			for &i in neightboors {
+				tile := &board[i.x][i.y]
+				if tile.number_hint > 0 {
+					tile.state = .NUMBER_HINT
+				}
 			}
 		}
+	} else if center_tile.number_hint > 0 {
+		center_tile.state = .NUMBER_HINT
 	}
 }
 
@@ -111,7 +151,7 @@ set_number_hint :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 			}
 			board_tile := &board[x][y]
 			board_tile.number_hint = bomb_count
-					}
+		}
 	}
 
 }
@@ -234,12 +274,12 @@ main :: proc() {
 					color_to_use = YELLOW
 				}
 
-								DrawTexturePro(sprite, sprite1, tile.rect, Vector2{0, 0}, 0, WHITE)
-							}
+				DrawTexturePro(sprite, sprite1, tile.rect, Vector2{0, 0}, 0, WHITE)
+			}
 		}
 		EndDrawing()
 
-				game_clock += GetFrameTime()
+		game_clock += GetFrameTime()
 		free_all(context.temp_allocator)
 
 	}
