@@ -193,6 +193,21 @@ get_sprite :: proc(pos: int) -> rl.Rectangle {
 }
 
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
 	using rl
 
 	SetConfigFlags({.VSYNC_HINT})
@@ -253,17 +268,6 @@ main :: proc() {
 		//drawing
 
 		BeginDrawing()
-		text_to_show := fmt.ctprint(game_clock)
-		font_size: f32 = 40
-		text_dim := MeasureTextEx(GetFontDefault(), text_to_show, font_size, 40)
-		DrawText(
-			text_to_show,
-			i32(SCREEN_DIM / 2 - text_dim.x / 2),
-			i32(SCREEN_DIM / 2 - text_dim.y / 2),
-			i32(font_size),
-			BLACK,
-		)
-
 		for &row, x in board {
 			for &tile, y in row {
 				color_to_use: rl.Color

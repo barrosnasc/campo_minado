@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "tasks":[
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "odin build . -debug -out:build/debug",
+            "group": "build"
+        },
+    ],
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "name": "Debug",
+            "program": "${workspaceFolder}/bin/debug",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
