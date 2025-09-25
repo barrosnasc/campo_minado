@@ -8,7 +8,6 @@ should_game_run := true
 
 
 SCREEN_DIM :: 800
-game_clock: f32 = 0
 
 TileState :: enum {
 	UNDISCOVERED,
@@ -27,8 +26,8 @@ BoardTile :: struct {
 }
 
 
-BOARD_SIZE :: 10 + 2
-NUMBER_OF_BOMBS :: 10
+BOARD_SIZE :: 30
+NUMBER_OF_BOMBS :: 60
 
 scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 	for i in 0 ..< NUMBER_OF_BOMBS {
@@ -111,17 +110,14 @@ reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 			if len(tile_with_nothing) == 0 {continue_discovering = false}
 
 		}
-		fmt.println(map_tile_with_nothing)
 		map_alread_passed: map[[2]int]u8
 		defer delete(map_alread_passed)
 		for key in &map_tile_with_nothing {
 			tile := &board[key.x][key.y]
-			fmt.println(tile)
 			tile.state = .NOTHING
 			append(&tile_with_nothing, key)
 		}
 
-		fmt.println(map_tile_with_nothing)
 		for &pos in tile_with_nothing {
 			_entry, exists := &map_alread_passed[pos]
 			neightboors := neightboors_3x3(pos.x, pos.y, BOARD_SIZE, BOARD_SIZE)
@@ -178,8 +174,6 @@ main :: proc() {
 	InitWindow(SCREEN_DIM, SCREEN_DIM, "Campo Minado")
 	SetTargetFPS(60)
 	defer CloseWindow()
-
-
 	sprite := LoadTexture("./tile_sprite.png")
 	fmt.println(sprite.format)
 	board := make_board()
@@ -213,7 +207,6 @@ main :: proc() {
 			x := mouse_event.x
 			y := mouse_event.y
 			tile := &board[x][y]
-			fmt.println(mouse_event, tile.x, tile.y)
 
 			#partial switch state^ {
 			case .TRIGGER:
@@ -235,7 +228,6 @@ main :: proc() {
 		//drawing
 
 		BeginDrawing()
-		// DrawRectangleRounded(rect, 0.5, 4, RED)
 		text_to_show := fmt.ctprint(game_clock)
 		font_size: f32 = 40
 		text_dim := MeasureTextEx(GetFontDefault(), text_to_show, font_size, 40)
@@ -279,9 +271,7 @@ main :: proc() {
 		}
 		EndDrawing()
 
-		game_clock += GetFrameTime()
 		free_all(context.temp_allocator)
-
 	}
 
 }
