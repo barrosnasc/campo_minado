@@ -2,6 +2,8 @@ package campominado
 
 import "core:fmt"
 import "core:math/rand"
+import "core:mem"
+import vmem "core:mem/virtual"
 import rl "vendor:raylib"
 
 should_game_run := true
@@ -30,11 +32,23 @@ BOARD_SIZE :: 30
 NUMBER_OF_BOMBS :: 60
 
 scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
-	for i in 0 ..< NUMBER_OF_BOMBS {
-		x := rand.float32_range(0, BOARD_SIZE)
-		y := rand.float32_range(0, BOARD_SIZE)
-		tile := &board[int(x)][int(y)]
+	rand.reset(20)
+	bomb_place: map[[2]int]u8
+	defer delete(bomb_place)
+	i := 0
+	for {
+		if i == NUMBER_OF_BOMBS {
+			break
+		}
+		x := cast(int)rand.float32_range(0, BOARD_SIZE)
+		y := cast(int)rand.float32_range(0, BOARD_SIZE)
+		coord := [2]int{x, y}
+		_entry, exists := &bomb_place[coord]
+		if exists {continue}
+		tile := &board[x][y]
 		tile.bomb = true
+		map_insert(&bomb_place, coord, 0)
+		i += 1
 	}
 }
 TILE_SPACING :: 0
@@ -59,8 +73,13 @@ make_board :: proc() -> [BOARD_SIZE][BOARD_SIZE]BoardTile {
 }
 
 // 8 Neightboors from x,y 
-neightboors_3x3 :: proc(x, y, x_size, y_size: int) -> [dynamic][2]int {
-	out: [dynamic][2]int
+neightboors_3x3 :: proc(
+	x, y: int,
+	x_size: int = BOARD_SIZE,
+	y_size: int = BOARD_SIZE,
+	allocator: mem.Allocator = context.allocator,
+) -> [dynamic][2]int {
+	out := make_dynamic_array([dynamic][2]int, allocator)
 	for i in -1 ..= 1 {
 		if x + i < 0 || x + i >= x_size {continue}
 		for j in -1 ..= 1 {
@@ -77,17 +96,23 @@ neightboors_3x3 :: proc(x, y, x_size, y_size: int) -> [dynamic][2]int {
 
 
 reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
-	defer free_all(context.temp_allocator)
+	arena: vmem.Arena
+	arena_err := vmem.arena_init_static(&arena)
+	ensure(arena_err == nil)
+	arena_alloc := vmem.arena_allocator(&arena)
+	defer {vmem.arena_destroy(&arena);free_all(context.temp_allocator)}
 	checked: [BOARD_SIZE][BOARD_SIZE]bool = false
 
 
 	map_tile_with_nothing: map[[2]int]u8
+	defer delete(map_tile_with_nothing)
 
 	center_tile := &board[x][y]
 	if center_tile.state == .UNDISCOVERED && center_tile.number_hint == 0 {
 		continue_discovering := true
 
 		tile_with_nothing: [dynamic][2]int
+		defer delete(tile_with_nothing)
 		reserve(&tile_with_nothing, 6)
 		map_insert(&map_tile_with_nothing, [2]int{x, y}, 0)
 		append(&tile_with_nothing, [2]int{x, y})
@@ -95,10 +120,10 @@ reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 		for continue_discovering {
 			for len(tile_with_nothing) > 0 {
 				val := pop_front(&tile_with_nothing)
-				neightboors := neightboors_3x3(val.x, val.y, BOARD_SIZE, BOARD_SIZE)
+				neightboors := neightboors_3x3(val.x, val.y, allocator = arena_alloc)
 				defer delete(neightboors)
 				for &i in neightboors {
-					tile := board[i.x][i.y]
+					tile := &board[i.x][i.y]
 					_entry, exists := &map_tile_with_nothing[i]
 					// não precisa checar bomb,pois number_hint fica sempre a borda de uma
 					if tile.state == .UNDISCOVERED && !exists && tile.number_hint == 0 {
@@ -120,7 +145,7 @@ reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 
 		for &pos in tile_with_nothing {
 			_entry, exists := &map_alread_passed[pos]
-			neightboors := neightboors_3x3(pos.x, pos.y, BOARD_SIZE, BOARD_SIZE)
+			neightboors := neightboors_3x3(pos.x, pos.y, allocator = arena_alloc)
 			for &i in neightboors {
 				tile := &board[i.x][i.y]
 				if tile.number_hint > 0 {
@@ -137,7 +162,7 @@ set_number_hint :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 	for &row, x in board {
 		for &tile, y in board {
 			bomb_count: u8 = 0
-			neighboors := neightboors_3x3(x, y, BOARD_SIZE, BOARD_SIZE)
+			neighboors := neightboors_3x3(x, y)
 			defer delete(neighboors)
 			for &pos in neighboors {
 				tile := &board[pos.x][pos.y]
