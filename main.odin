@@ -32,7 +32,6 @@ BOARD_SIZE :: 30
 NUMBER_OF_BOMBS :: 60
 
 scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
-	rand.reset(20)
 	bomb_place: map[[2]int]u8
 	defer delete(bomb_place)
 	i := 0
@@ -181,16 +180,29 @@ SPRITE_SIZE :: 13
 SPRITE_DIM :: 16
 SPRITE_TOTAL_X :: 4
 SPRITE_TOTAL_Y :: 4
+SPRITE_TOTAL :: SPRITE_TOTAL_X * SPRITE_TOTAL_Y
 
-get_sprite :: proc(pos: int) -> rl.Rectangle {
-	using rl
-	frameRec: Rectangle = Rectangle{0, 0, SPRITE_DIM, SPRITE_DIM}
-	x := pos % SPRITE_TOTAL_X
-	y := pos / SPRITE_TOTAL_X
-	frameRec.x = f32(x * SPRITE_DIM + x * 1)
-	frameRec.y = f32(y * SPRITE_DIM + y * 1)
-	return frameRec
+gen_sprite_rectangle :: proc() -> (arr: [SPRITE_TOTAL]rl.Rectangle) {
+	get_sprite :: proc(pos: int) -> rl.Rectangle {
+		using rl
+		frameRec: Rectangle = Rectangle{0, 0, SPRITE_DIM, SPRITE_DIM}
+		x := pos % SPRITE_TOTAL_X
+		y := pos / SPRITE_TOTAL_X
+		frameRec.x = f32(x * SPRITE_DIM + x * 1)
+		frameRec.y = f32(y * SPRITE_DIM + y * 1)
+		return frameRec
+	}
+	for i in 0 ..< 9 {
+		arr[i] = get_sprite(i)
+	}
+	return arr
 }
+sprite_file := #load("./tile_sprite.png")
+prepare_image :: proc() -> rl.Texture2D {
+	image: rl.Image = rl.LoadImageFromMemory(".png", &sprite_file, 990)
+	return rl.LoadTextureFromImage(image)
+}
+
 
 main :: proc() {
 	when ODIN_DEBUG {
@@ -215,6 +227,7 @@ main :: proc() {
 	SetTargetFPS(60)
 	defer CloseWindow()
 	sprite := LoadTexture("./tile_sprite.png")
+	sprite_rectangle := gen_sprite_rectangle()
 	fmt.println(sprite.format)
 	board := make_board()
 	scatter_bombs(&board)
@@ -272,30 +285,30 @@ main :: proc() {
 			for &tile, y in row {
 				color_to_use: rl.Color
 
-				sprite1: Rectangle
+				sprite1: ^Rectangle
 
 				switch tile.state {
 				case .UNDISCOVERED:
-					sprite1 = get_sprite(0)
+					sprite1 = &sprite_rectangle[0]
 					color_to_use = GRAY
 				case .NOTHING:
-					sprite1 = get_sprite(1)
+					sprite1 = &sprite_rectangle[1]
 					color_to_use = DARKGRAY
 				case .FLAG:
-					sprite1 = get_sprite(2)
+					sprite1 = &sprite_rectangle[2]
 					color_to_use = GREEN
 				case .NUMBER_HINT:
-					sprite1 = get_sprite(int(tile.number_hint) + 4)
+					sprite1 = &sprite_rectangle[int(tile.number_hint) + 4]
 					color_to_use = RED
 				case .REVEAL_BOMB:
-					sprite1 = get_sprite(3)
+					sprite1 = &sprite_rectangle[3]
 					color_to_use = DARKPURPLE
 				case .BOMB_EXPLODED:
-					sprite1 = get_sprite(4)
+					sprite1 = &sprite_rectangle[4]
 					color_to_use = YELLOW
 				}
 
-				DrawTexturePro(sprite, sprite1, tile.rect, Vector2{0, 0}, 0, WHITE)
+				DrawTexturePro(sprite, sprite1^, tile.rect, Vector2{0, 0}, 0, WHITE)
 			}
 		}
 		EndDrawing()
