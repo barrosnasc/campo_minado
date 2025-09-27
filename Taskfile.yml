@@ -10,9 +10,15 @@ tasks:
     cmds:
       - echo "{{.GREETING}}"
     silent: false
-  debug:
+  build-debug:
     cmds:
       - odin build . -out=bin/debug -debug
+  debug:
+    cmds:
+      - odin build . -out=bin/debug -debug && ./bin/debug
+  release:
+    cmds:
+      - odin build . -out=bin/release -min-link-libs -o:aggressive && ./bin/release
   check:
     cmds:
       - odin check .

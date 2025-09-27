@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:math/rand"
 import "core:mem"
 import vmem "core:mem/virtual"
+import "core:time"
 import rl "vendor:raylib"
 
 should_game_run := true
@@ -12,12 +13,13 @@ should_game_run := true
 SCREEN_DIM :: 800
 
 TileState :: enum {
-	UNDISCOVERED,
-	NOTHING,
-	FLAG,
-	NUMBER_HINT,
-	REVEAL_BOMB,
-	BOMB_EXPLODED,
+	UNDISCOVERED = 0,
+	NOTHING = 1,
+	FLAG = 2,
+	REVEAL_BOMB = 3,
+	BOMB_EXPLODED = 4,
+	NUMBER_HINT, // 4+min=5..=4+max=12 , min 1 max 8
+	HINT = 13,
 }
 
 BoardTile :: struct {
@@ -50,21 +52,19 @@ scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 		i += 1
 	}
 }
-TILE_SPACING :: 0
-TILE_WIDTH :: SCREEN_DIM / BOARD_SIZE - TILE_SPACING
+TILE_WIDTH :: SCREEN_DIM / BOARD_SIZE
 
 make_board :: proc() -> [BOARD_SIZE][BOARD_SIZE]BoardTile {
-	spacing := TILE_SPACING
 	tile_width := TILE_WIDTH
 	tile_height := tile_width
 	board: [BOARD_SIZE][BOARD_SIZE]BoardTile
 	for &row, x in board {
 		for &tile, y in row {
 			tile.state = .UNDISCOVERED
-			tile.x = f32(x * tile_width + spacing)
-			tile.y = f32(y * tile_height + spacing)
-			tile.width = f32(tile_width - spacing)
-			tile.height = f32(tile_height - spacing)
+			tile.x = f32(x * tile_width)
+			tile.y = f32(y * tile_height)
+			tile.width = f32(tile_width)
+			tile.height = f32(tile_height)
 		}
 	}
 	return board
@@ -93,6 +93,45 @@ neightboors_3x3 :: proc(
 
 }
 
+verify_flags :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) -> bool {
+	count := 0
+	for &row in board {
+		for &tile in row {
+			if tile.state == .FLAG {count += 1}
+		}
+	}
+	return count == NUMBER_OF_BOMBS
+}
+hint :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
+	arena: vmem.Arena
+	arena_err := vmem.arena_init_static(&arena)
+	ensure(arena_err == nil)
+	arena_alloc := vmem.arena_allocator(&arena)
+	defer {vmem.arena_destroy(&arena);free_all(context.temp_allocator)}
+	checked: [BOARD_SIZE][BOARD_SIZE]bool = false
+	center_tile := &board[x][y]
+	neightboors := neightboors_3x3(x, y, allocator = arena_alloc)
+	defer delete(neightboors)
+	flags := 0
+	tile_with_undiscoverd: [dynamic][2]int
+	defer delete(tile_with_undiscoverd)
+	for &i in neightboors {
+		tile := &board[i.x][i.y]
+		if tile.state == .UNDISCOVERED {
+			tile.state = .HINT
+			append(&tile_with_undiscoverd, [2]int{i.x, i.y})
+		}
+		if tile.state == .FLAG {
+			flags += 1
+		}
+	}
+	if flags == int(center_tile.number_hint) {
+		for &i in tile_with_undiscoverd {
+			fmt.println("reveal from hint", i.x, i.y)
+			reveal(board, i.x, i.y)
+		}
+	}
+}
 
 reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 	arena: vmem.Arena
@@ -188,11 +227,11 @@ gen_sprite_rectangle :: proc() -> (arr: [SPRITE_TOTAL]rl.Rectangle) {
 		frameRec: Rectangle = Rectangle{0, 0, SPRITE_DIM, SPRITE_DIM}
 		x := pos % SPRITE_TOTAL_X
 		y := pos / SPRITE_TOTAL_X
-		frameRec.x = f32(x * SPRITE_DIM + x * 1)
-		frameRec.y = f32(y * SPRITE_DIM + y * 1)
+		frameRec.x = f32(x * SPRITE_DIM + x)
+		frameRec.y = f32(y * SPRITE_DIM + y)
 		return frameRec
 	}
-	for i in 0 ..< 9 {
+	for i in 0 ..< SPRITE_TOTAL {
 		arr[i] = get_sprite(i)
 	}
 	return arr
@@ -241,10 +280,16 @@ main :: proc() {
 			HOLD,
 		},
 	}
+	flags := 0
 	for should_game_run {
 		defer mouse_event.state = .EMPTY
 		// Esc or CloseWindowIcon
 		if WindowShouldClose() {should_game_run = false}
+		if (flags == NUMBER_OF_BOMBS) && (verify_flags(&board)) {
+			should_game_run = false
+			fmt.println("you win")
+			time.sleep(10 * time.Second)
+		}
 
 		for &row, x in board {
 			for &tile, y in row {
@@ -264,6 +309,7 @@ main :: proc() {
 			#partial switch state^ {
 			case .TRIGGER:
 				if tile.bomb {
+					should_game_run = false
 					fmt.println("you lose")
 					tile.state = .BOMB_EXPLODED
 				} else {
@@ -272,10 +318,11 @@ main :: proc() {
 			case .FLAG:
 				if tile.state == .FLAG {
 					tile.state = .UNDISCOVERED
-				} else if tile.state == .UNDISCOVERED {tile.state = .FLAG}
+				} else if tile.state == .UNDISCOVERED {tile.state = .FLAG;flags += 1}
 			case .HOLD:
-			// hint(x,y,&board)
+				hint(&board, x, y)
 			}
+			fmt.println(flags, NUMBER_OF_BOMBS)
 
 		}
 		//drawing
@@ -290,22 +337,19 @@ main :: proc() {
 				switch tile.state {
 				case .UNDISCOVERED:
 					sprite1 = &sprite_rectangle[0]
-					color_to_use = GRAY
 				case .NOTHING:
 					sprite1 = &sprite_rectangle[1]
-					color_to_use = DARKGRAY
 				case .FLAG:
 					sprite1 = &sprite_rectangle[2]
-					color_to_use = GREEN
 				case .NUMBER_HINT:
 					sprite1 = &sprite_rectangle[int(tile.number_hint) + 4]
-					color_to_use = RED
 				case .REVEAL_BOMB:
 					sprite1 = &sprite_rectangle[3]
-					color_to_use = DARKPURPLE
 				case .BOMB_EXPLODED:
 					sprite1 = &sprite_rectangle[4]
-					color_to_use = YELLOW
+				case .HINT:
+					sprite1 = &sprite_rectangle[TileState.HINT]
+					tile.state = .UNDISCOVERED
 				}
 
 				DrawTexturePro(sprite, sprite1^, tile.rect, Vector2{0, 0}, 0, WHITE)
