@@ -240,7 +240,8 @@ reveal :: proc(world: ^GameWorld, x, y: int, number_of_flags: int = 0) {
 		}
 	} else if center_tile.number_hint > 0 {
 		center_tile.state = .NUMBER_HINT
-	} else if center_tile.bomb {
+	}
+	if center_tile.bomb {
 		center_tile.state = .BOMB_EXPLODED
 		world.state = .LOSS
 	}
@@ -337,90 +338,100 @@ main :: proc() {
 		}
 		switch world.state {
 		case .RUNNING:
-			{}
+			for &row, x in world.board {
+				for &tile, y in row {
+					if CheckCollisionPointRec(GetMousePosition(), tile.rect) {
+						if IsMouseButtonReleased(.LEFT) {mouse_event = {x, y, .TRIGGER}}
+						if IsMouseButtonPressed(.RIGHT) {mouse_event = {x, y, .FLAG}}
+						if IsMouseButtonDown(.LEFT) {mouse_event = {x, y, .HOLD}}
+					}
+				}
+			}
+			if mouse_event.state != .EMPTY {
+				state := &mouse_event.state
+				x := mouse_event.x
+				y := mouse_event.y
+				tile := &world.board[x][y]
+
+				#partial switch state^ {
+				case .TRIGGER:
+					if tile.bomb {
+						tile.state = .BOMB_EXPLODED
+						world.state = .LOSS
+					} else {
+						reveal(&world, x, y)
+					}
+				case .FLAG:
+					if tile.state == .FLAG {
+						tile.state = .UNDISCOVERED
+						world.flags -= 1
+					} else if tile.state == .UNDISCOVERED {tile.state = .FLAG;world.flags += 1}
+				case .HOLD:
+					hint(&world, x, y)
+				}
+				fmt.println(world.flags, NUMBER_OF_BOMBS)
+
+			}
 		case .LOSS:
-			{
-				should_game_run = false
-				time.sleep(5 * time.Second)
-			}
+			should_game_run = false
+			show_bombs(&world)
+
 		case .WIN:
-			{
-				should_game_run = false
-				fmt.println("you win")
-				time.sleep(10 * time.Second)
-			}
+			should_game_run = false
 		}
 
-		for &row, x in world.board {
-			for &tile, y in row {
-				if CheckCollisionPointRec(GetMousePosition(), tile.rect) {
-					if IsMouseButtonReleased(.LEFT) {mouse_event = {x, y, .TRIGGER}}
-					if IsMouseButtonPressed(.RIGHT) {mouse_event = {x, y, .FLAG}}
-					if IsMouseButtonDown(.LEFT) {mouse_event = {x, y, .HOLD}}
-				}
-			}
-		}
-		if mouse_event.state != .EMPTY {
-			state := &mouse_event.state
-			x := mouse_event.x
-			y := mouse_event.y
-			tile := &world.board[x][y]
-
-			#partial switch state^ {
-			case .TRIGGER:
-				if tile.bomb {
-					fmt.println("you lose")
-					tile.state = .BOMB_EXPLODED
-					world.state = .LOSS
-					show_bombs(&world)
-				} else {
-					reveal(&world, x, y)
-				}
-			case .FLAG:
-				if tile.state == .FLAG {
-					tile.state = .UNDISCOVERED
-					world.flags -= 1
-				} else if tile.state == .UNDISCOVERED {tile.state = .FLAG;world.flags += 1}
-			case .HOLD:
-				hint(&world, x, y)
-			}
-			fmt.println(world.flags, NUMBER_OF_BOMBS)
-
-		}
 		//drawing
 
-		BeginDrawing()
-		for &row, x in world.board {
-			for &tile, y in row {
-				color_to_use: rl.Color
-
-				sprite1: ^Rectangle
-
-				switch tile.state {
-				case .UNDISCOVERED:
-					sprite1 = &sprite_rectangle[TileState.UNDISCOVERED]
-				case .NOTHING:
-					sprite1 = &sprite_rectangle[TileState.NOTHING]
-				case .FLAG:
-					sprite1 = &sprite_rectangle[TileState.FLAG]
-				case .NUMBER_HINT:
-					sprite1 = &sprite_rectangle[int(tile.number_hint) + 4]
-				case .REVEAL_BOMB:
-					sprite1 = &sprite_rectangle[TileState.REVEAL_BOMB]
-				case .BOMB_EXPLODED:
-					sprite1 = &sprite_rectangle[TileState.BOMB_EXPLODED]
-				case .HINT:
-					sprite1 = &sprite_rectangle[TileState.HINT]
-					tile.state = .UNDISCOVERED
-				}
-
-				DrawTexturePro(sprite, sprite1^, tile.rect, Vector2{0, 0}, 0, WHITE)
-			}
-		}
-		EndDrawing()
+		draw_world(&world, &sprite, &sprite_rectangle)
 
 		free_all(context.temp_allocator)
 	}
+	if world.state == .LOSS {
+		fmt.println("you lose")
+		time.sleep(5 * time.Second)
+	}
+	if world.state == .WIN {
+		fmt.println("you win")
+		time.sleep(10 * time.Second)
+	}
 
+}
+
+draw_world :: proc(
+	world: ^GameWorld,
+	sprite: ^rl.Texture2D,
+	sprite_rectangle: ^[SPRITE_TOTAL]rl.Rectangle,
+) {
+	using rl
+	BeginDrawing()
+
+	for &row, x in world.board {
+		for &tile, y in row {
+			color_to_use: rl.Color
+
+			sprite1: ^Rectangle
+
+			switch tile.state {
+			case .UNDISCOVERED:
+				sprite1 = &sprite_rectangle[TileState.UNDISCOVERED]
+			case .NOTHING:
+				sprite1 = &sprite_rectangle[TileState.NOTHING]
+			case .FLAG:
+				sprite1 = &sprite_rectangle[TileState.FLAG]
+			case .NUMBER_HINT:
+				sprite1 = &sprite_rectangle[int(tile.number_hint) + 4]
+			case .REVEAL_BOMB:
+				sprite1 = &sprite_rectangle[TileState.REVEAL_BOMB]
+			case .BOMB_EXPLODED:
+				sprite1 = &sprite_rectangle[TileState.BOMB_EXPLODED]
+			case .HINT:
+				sprite1 = &sprite_rectangle[TileState.HINT]
+				tile.state = .UNDISCOVERED
+			}
+
+			DrawTexturePro(sprite^, sprite1^, tile.rect, Vector2{0, 0}, 0, WHITE)
+		}
+	}
+	EndDrawing()
 }
 
