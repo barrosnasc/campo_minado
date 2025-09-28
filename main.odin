@@ -22,6 +22,26 @@ TileState :: enum {
 	HINT = 13,
 }
 
+GameState :: enum {
+	RUNNING,
+	WIN,
+	LOSS,
+}
+
+GameWorld :: struct {
+	board: [BOARD_SIZE][BOARD_SIZE]BoardTile,
+	state: GameState,
+	flags: int,
+}
+
+make_world :: proc() -> (world: GameWorld) {
+	board := make_board()
+	scatter_bombs(&board)
+	set_number_hint(&board)
+	world.board = board
+	return world
+}
+
 BoardTile :: struct {
 	using rect:  rl.Rectangle,
 	state:       TileState,
@@ -102,18 +122,35 @@ verify_flags :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) -> bool {
 	}
 	return count == NUMBER_OF_BOMBS
 }
-hint :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
+
+show_bombs :: proc(world: ^GameWorld) {
+	for &row, x in world.board {
+		for &tile, y in row {
+			if tile.bomb {
+				if tile.state == .FLAG {
+					tile.state = .REVEAL_BOMB
+				} else {
+					tile.state = .BOMB_EXPLODED
+				}
+			}
+		}
+	}
+}
+
+hint :: proc(world: ^GameWorld, x, y: int) {
 	arena: vmem.Arena
-	arena_err := vmem.arena_init_static(&arena)
-	ensure(arena_err == nil)
+	ensure(vmem.arena_init_static(&arena) == nil)
 	arena_alloc := vmem.arena_allocator(&arena)
 	defer {vmem.arena_destroy(&arena);free_all(context.temp_allocator)}
+
+	board := &world.board
 	checked: [BOARD_SIZE][BOARD_SIZE]bool = false
 	center_tile := &board[x][y]
 	neightboors := neightboors_3x3(x, y, allocator = arena_alloc)
 	defer delete(neightboors)
+
 	flags := 0
-	tile_with_undiscoverd: [dynamic][2]int
+	tile_with_undiscoverd := make([dynamic][2]int, allocator = arena_alloc)
 	defer delete(tile_with_undiscoverd)
 	for &i in neightboors {
 		tile := &board[i.x][i.y]
@@ -127,16 +164,19 @@ hint :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 	}
 	if flags == int(center_tile.number_hint) {
 		for &i in tile_with_undiscoverd {
-			fmt.println("reveal from hint", i.x, i.y)
-			reveal(board, i.x, i.y)
+			fmt.println("reveal for hint", i.x, i.y)
+			reveal(world, i.x, i.y, flags)
+			if world.state == .LOSS {
+				break
+			}
 		}
 	}
 }
 
-reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
+reveal :: proc(world: ^GameWorld, x, y: int, number_of_flags: int = 0) {
+	board := &world.board
 	arena: vmem.Arena
-	arena_err := vmem.arena_init_static(&arena)
-	ensure(arena_err == nil)
+	ensure(vmem.arena_init_static(&arena) == nil)
 	arena_alloc := vmem.arena_allocator(&arena)
 	defer {vmem.arena_destroy(&arena);free_all(context.temp_allocator)}
 	checked: [BOARD_SIZE][BOARD_SIZE]bool = false
@@ -146,7 +186,11 @@ reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 	defer delete(map_tile_with_nothing)
 
 	center_tile := &board[x][y]
-	if center_tile.state == .UNDISCOVERED && center_tile.number_hint == 0 {
+	if (center_tile.state == .UNDISCOVERED ||
+		   center_tile.state == .NUMBER_HINT ||
+		   center_tile.state == .NOTHING ||
+		   center_tile.state == .HINT) &&
+	   center_tile.number_hint == 0 {
 		continue_discovering := true
 
 		tile_with_nothing: [dynamic][2]int
@@ -193,6 +237,9 @@ reveal :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile, x, y: int) {
 		}
 	} else if center_tile.number_hint > 0 {
 		center_tile.state = .NUMBER_HINT
+	} else if center_tile.bomb {
+		center_tile.state = .BOMB_EXPLODED
+		world.state = .LOSS
 	}
 }
 
@@ -268,9 +315,7 @@ main :: proc() {
 	sprite: Texture2D = prepare_image()
 	sprite_rectangle := gen_sprite_rectangle()
 	fmt.println(sprite.format)
-	board := make_board()
-	scatter_bombs(&board)
-	set_number_hint(&board)
+	world: GameWorld = make_world()
 	mouse_event: struct {
 		x, y:  int,
 		state: enum {
@@ -280,18 +325,30 @@ main :: proc() {
 			HOLD,
 		},
 	}
-	flags := 0
 	for should_game_run {
 		defer mouse_event.state = .EMPTY
 		// Esc or CloseWindowIcon
 		if WindowShouldClose() {should_game_run = false}
-		if (flags == NUMBER_OF_BOMBS) && (verify_flags(&board)) {
-			should_game_run = false
-			fmt.println("you win")
-			time.sleep(10 * time.Second)
+		if (world.flags == NUMBER_OF_BOMBS) && (verify_flags(&world.board)) {
+			world.state = .WIN
+		}
+		switch world.state {
+		case .RUNNING:
+			{}
+		case .LOSS:
+			{
+				should_game_run = false
+				time.sleep(5 * time.Second)
+			}
+		case .WIN:
+			{
+				should_game_run = false
+				fmt.println("you win")
+				time.sleep(10 * time.Second)
+			}
 		}
 
-		for &row, x in board {
+		for &row, x in world.board {
 			for &tile, y in row {
 				if CheckCollisionPointRec(GetMousePosition(), tile.rect) {
 					if IsMouseButtonReleased(.LEFT) {mouse_event = {x, y, .TRIGGER}}
@@ -304,31 +361,33 @@ main :: proc() {
 			state := &mouse_event.state
 			x := mouse_event.x
 			y := mouse_event.y
-			tile := &board[x][y]
+			tile := &world.board[x][y]
 
 			#partial switch state^ {
 			case .TRIGGER:
 				if tile.bomb {
-					should_game_run = false
 					fmt.println("you lose")
 					tile.state = .BOMB_EXPLODED
+					world.state = .LOSS
+					show_bombs(&world)
 				} else {
-					reveal(&board, x, y)
+					reveal(&world, x, y)
 				}
 			case .FLAG:
 				if tile.state == .FLAG {
 					tile.state = .UNDISCOVERED
-				} else if tile.state == .UNDISCOVERED {tile.state = .FLAG;flags += 1}
+					world.flags -= 1
+				} else if tile.state == .UNDISCOVERED {tile.state = .FLAG;world.flags += 1}
 			case .HOLD:
-				hint(&board, x, y)
+				hint(&world, x, y)
 			}
-			fmt.println(flags, NUMBER_OF_BOMBS)
+			fmt.println(world.flags, NUMBER_OF_BOMBS)
 
 		}
 		//drawing
 
 		BeginDrawing()
-		for &row, x in board {
+		for &row, x in world.board {
 			for &tile, y in row {
 				color_to_use: rl.Color
 
@@ -336,17 +395,17 @@ main :: proc() {
 
 				switch tile.state {
 				case .UNDISCOVERED:
-					sprite1 = &sprite_rectangle[0]
+					sprite1 = &sprite_rectangle[TileState.UNDISCOVERED]
 				case .NOTHING:
-					sprite1 = &sprite_rectangle[1]
+					sprite1 = &sprite_rectangle[TileState.NOTHING]
 				case .FLAG:
-					sprite1 = &sprite_rectangle[2]
+					sprite1 = &sprite_rectangle[TileState.FLAG]
 				case .NUMBER_HINT:
 					sprite1 = &sprite_rectangle[int(tile.number_hint) + 4]
 				case .REVEAL_BOMB:
-					sprite1 = &sprite_rectangle[3]
+					sprite1 = &sprite_rectangle[TileState.REVEAL_BOMB]
 				case .BOMB_EXPLODED:
-					sprite1 = &sprite_rectangle[4]
+					sprite1 = &sprite_rectangle[TileState.BOMB_EXPLODED]
 				case .HINT:
 					sprite1 = &sprite_rectangle[TileState.HINT]
 					tile.state = .UNDISCOVERED
