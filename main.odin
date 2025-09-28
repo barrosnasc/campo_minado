@@ -238,10 +238,10 @@ gen_sprite_rectangle :: proc() -> (arr: [SPRITE_TOTAL]rl.Rectangle) {
 }
 sprite_file := #load("./tile_sprite.png")
 prepare_image :: proc() -> rl.Texture2D {
-	image: rl.Image = rl.LoadImageFromMemory(".png", &sprite_file, 990)
+	image: rl.Image = rl.LoadImageFromMemory(".PNG", &sprite_file[0], i32(len(sprite_file)))
+	defer rl.UnloadImage(image)
 	return rl.LoadTextureFromImage(image)
 }
-
 
 main :: proc() {
 	when ODIN_DEBUG {
@@ -265,7 +265,7 @@ main :: proc() {
 	InitWindow(SCREEN_DIM, SCREEN_DIM, "Campo Minado")
 	SetTargetFPS(60)
 	defer CloseWindow()
-	sprite := LoadTexture("./tile_sprite.png")
+	sprite: Texture2D = prepare_image()
 	sprite_rectangle := gen_sprite_rectangle()
 	fmt.println(sprite.format)
 	board := make_board()
