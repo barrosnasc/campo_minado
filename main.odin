@@ -55,6 +55,9 @@ NUMBER_OF_BOMBS :: 60
 
 scatter_bombs :: proc(board: ^[BOARD_SIZE][BOARD_SIZE]BoardTile) {
 	bomb_place: map[[2]int]u8
+	seed := rand.uint32()
+	fmt.println("Seed:", seed)
+	rand.reset(u64(seed))
 	defer delete(bomb_place)
 	i := 0
 	for {
